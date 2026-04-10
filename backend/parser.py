@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Global cache for skill extraction (keys: hash of text, values: list of skills)
-SKILL_CACHE = {}
+# Global cache for resume parsing (keys: hash of text, values: dict of structured data)
+PARSE_CACHE = {}
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
     """Extract text from PDF using pdfplumber."""
@@ -43,20 +43,17 @@ def extract_text_from_txt(file_bytes: bytes) -> str:
     except UnicodeDecodeError:
         return file_bytes.decode("latin-1")
 
-def extract_skills_from_text(text: str) -> list:
+def extract_structured_data(text: str) -> dict:
     """
-    Use Groq LLM to extract a flat list of strings representing skills.
-    Uses caching and temperature=0 for consistency.
+    Use Groq LLM to extract structured resume data.
     """
     if not text.strip():
-        return []
+        return {}
 
-    # Check cache first
     text_hash = hashlib.md5(text.strip().encode()).hexdigest()
-    if text_hash in SKILL_CACHE:
-        return SKILL_CACHE[text_hash]
+    if text_hash in PARSE_CACHE:
+        return PARSE_CACHE[text_hash]
 
-    # 1. Get API key
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY is not set. Please check your .env file.")
@@ -66,26 +63,40 @@ def extract_skills_from_text(text: str) -> list:
         base_url="https://api.groq.com/openai/v1",
     )
 
-    # 2. Hardened Prompt for Structured Skills with Proficiency
-    prompt = f"""
-    Extract a list of technical and soft skills from the following text and estimate the proficiency level for each skill based on the context (e.g., years of experience, depth of projects, specific mentions).
-    
-    Proficiency Levels: Beginner, Intermediate, Advanced.
-    - If the context suggests high expertise or many years (ex: "5 years Python", "Expert in", "Lead developer"), use 'Advanced'.
-    - If the context suggests basic knowledge or brief mentions (ex: "familiar with", "exposure to"), use 'Beginner'.
-    - Use 'Intermediate' as the default if the context is unclear.
-    
-    Return ONLY a JSON object in this format:
-    {{
-      "skills": [
-        {{"name": "Python", "level": "Advanced"}},
-        {{"name": "React", "level": "Intermediate"}}
-      ]
-    }}
+    prompt = f"""you are a resume parsing assistant. I will provide raw resume text delimited below. Extract structured information and return ONLY one valid JSON object (no prose, no markdown, no explanations). If any field is not present, return an empty string or an empty array for that field. Do NOT invent or guess facts; if you are unsure, leave the field empty.
 
-    Text:
-    {text[:4000]}
-    """
+Output JSON schema (must match exactly): {{ "personal_info": {{ "name": "", "email": "", "phone": "", "location": "", "linkedin": "", "other": "" }}, "experience": [ {{ "role": "", "company": "", "start_date": "", "end_date": "", "location": "", "description": "", "bullets": [] }} ], "education": [ {{ "degree": "", "institution": "", "start_date": "", "end_date": "", "details": "" }} ], "skills": [ {{ "name": "", "canonical": "", "level": "", "source_context": "", "confidence": 0.0 }} ], "certifications": [ {{ "name": "", "issuer": "", "date": "" }} ], "projects": [ {{ "name": "", "description": "", "tech": [], "link": "" }} ], "publications": [ {{ "title": "", "venue": "", "year": "", "link": "" }} ], "raw_text_excerpt": "" }}
+
+Normalization mapping (use these canonical forms; if a skill is not listed, set canonical to lowercase of the name):
+
+ml -> machine learning
+react.js, reactjs -> react
+js -> javascript
+py -> python
+nodejs -> node.js`
+mongodb -> mongo db
+expressjs -> express.js
+aws -> amazon web services
+gcp -> google cloud platform
+k8s -> kubernetes
+
+Proficiency heuristics (use to choose level):
+Advanced: explicit phrases like "expert", "senior", "lead", "5+ years", "years of experience", "built production", "architected".
+Beginner: "familiar with", "exposure to", "learning", "introductory".
+Intermediate: default if context is unclear.
+
+Layout & table handling rules:
+If the text appears to be from a multi-column layout, reorder content by grouping lines under headings and output sections in logical order.
+If you detect table-like lines, treat each table cell in the skills column as a separate skill. If neighboring columns look like levels or years, include them in source_context or confidence hints.
+
+Safety & hallucinaton rules:
+Do not invent companies, dates, or publications.
+Provide short source_context snippets (10-40 words) exactly as they appear in the resume.
+Provide a confidence score between 0.0 and 1.0 for each skill. If you are unsure, use 0.6.
+
+Text:
+{text[:4000]}
+"""
 
     try:
         response = client.chat.completions.create(
@@ -105,9 +116,19 @@ def extract_skills_from_text(text: str) -> list:
             if json_match:
                 data = json.loads(json_match.group())
             else:
-                return []
+                data = {}
 
-        raw_skills = data.get("skills", [])
+        # Default structure fallback
+        default_data = {
+            "personal_info": {}, "experience": [], "education": [], 
+            "skills": [], "certifications": [], "projects": [], 
+            "publications": [], "raw_text_excerpt": text[:2000]
+        }
+        
+        if isinstance(data, dict):
+            default_data.update(data)
+
+        raw_skills = default_data.get("skills", [])
         
         # Structure cleaning logic
         processed_skills = []
@@ -120,23 +141,31 @@ def extract_skills_from_text(text: str) -> list:
                     level = "Intermediate"
                 
                 if name.lower() not in seen_names:
-                    processed_skills.append({"name": name, "level": level})
+                    item["level"] = level
+                    processed_skills.append(item)
                     seen_names.add(name.lower())
             elif isinstance(item, str):
                 # Fallback for simple strings
                 name = item.strip()
                 if name.lower() not in seen_names:
-                    processed_skills.append({"name": name, "level": "Intermediate"})
+                    processed_skills.append({"name": name, "level": "Intermediate", "canonical": name.lower(), "source_context": "", "confidence": 0.6})
                     seen_names.add(name.lower())
         
+        default_data["skills"] = processed_skills
+        
         # Save to cache
-        SKILL_CACHE[text_hash] = processed_skills
-        return processed_skills
+        PARSE_CACHE[text_hash] = default_data
+        return default_data
 
     except Exception as e:
-        print(f"Error extracting skills: {str(e)}")
+        print(f"Error extracting data: {str(e)}")
         # Raise the error so it propagates to the frontend and isn't silently swallowed
         raise RuntimeError(f"Skill extraction failed: {str(e)}")
+
+def extract_skills_from_text(text: str) -> list:
+    """Legacy function to maintain backwards compatibility where expecting a list of dicts."""
+    data = extract_structured_data(text)
+    return data.get("skills", [])
 
 def extract_job_skills(text: str) -> dict:
     """Extract skills and categorize them into required and optional based on simple keywords."""
@@ -193,8 +222,8 @@ def parse_resume(file_bytes: bytes, filename: str) -> dict:
             return {"error": "Could not extract any text from the file", "skills": []}
 
         # Use the general extractor
-        skills = extract_skills_from_text(extracted_text)
-        return {"skills": skills}
+        parsed_data = extract_structured_data(extracted_text)
+        return parsed_data
 
     except Exception as e:
         return {"error": f"Parsing error: {str(e)}", "skills": []}

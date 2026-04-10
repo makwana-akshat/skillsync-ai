@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from parser import parse_resume, extract_skills_from_text, extract_job_skills
 from normalizer import normalize_skills
 from hierarchy import infer_hierarchy
+from skill_registry import process_skills
 from matcher import match_skills
 from report import generate_pdf
 
@@ -48,14 +49,24 @@ async def parse_endpoint(file: UploadFile = File(...)):
     
     raw_skills = extracted_data.get("skills", [])
     
-    # Process skills: Normalize -> Hierarchy
+    # Process skills: Normalize -> Hierarchy -> Registry
     normalized = normalize_skills(raw_skills)
     final_skills = infer_hierarchy(normalized)
+    registry_result = process_skills(final_skills)
     
     return {
         "filename": file.filename,
         "extracted_skills": final_skills,
-        "raw_skills": raw_skills # Keeping raw for reference
+        "processed_skills": registry_result.get("processed_skills", []),
+        "emerging_skills": registry_result.get("emerging_candidates", []),
+        "store_updates": registry_result.get("store_updates", []),
+        "raw_skills": raw_skills, # Keeping raw for reference
+        "personal_info": extracted_data.get("personal_info", {}),
+        "experience": extracted_data.get("experience", []),
+        "education": extracted_data.get("education", []),
+        "projects": extracted_data.get("projects", []),
+        "certifications": extracted_data.get("certifications", []),
+        "publications": extracted_data.get("publications", [])
     }
 
 @app.post("/analyze")
@@ -89,7 +100,9 @@ async def analyze_endpoint(
         "matched_optional": match_result["matched_optional"],
         "missing_required": match_result["missing_required"],
         "missing_optional": match_result["missing_optional"],
-        "explanation": match_result["explanation"]
+        "explanation": match_result["explanation"],
+        "processed_skills": match_result.get("processed_skills", []),
+        "emerging_skills": match_result.get("emerging_skills", [])
     }
 
 @app.post("/rank")
