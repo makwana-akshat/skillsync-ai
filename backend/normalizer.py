@@ -29,8 +29,9 @@ def normalize_skills(skills: list) -> list:
     normalized_list = []
     for s in skills:
         if isinstance(s, dict) and "name" in s:
-            s["name"] = normalize_skill(s["name"])
-            normalized_list.append(s)
+            new_s = s.copy()
+            new_s["name"] = normalize_skill(s["name"])
+            normalized_list.append(new_s)
         elif isinstance(s, str):
             normalized_list.append({"name": normalize_skill(s), "level": "Intermediate"})
     return normalized_list

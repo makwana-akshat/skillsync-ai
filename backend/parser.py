@@ -135,7 +135,8 @@ def extract_skills_from_text(text: str) -> list:
 
     except Exception as e:
         print(f"Error extracting skills: {str(e)}")
-        return []
+        # Raise the error so it propagates to the frontend and isn't silently swallowed
+        raise RuntimeError(f"Skill extraction failed: {str(e)}")
 
 def extract_job_skills(text: str) -> dict:
     """Extract skills and categorize them into required and optional based on simple keywords."""

@@ -76,11 +76,15 @@ async def analyze_endpoint(
     job_skills = extract_job_skills(job_description)
     
     # 3. Match skills
-    match_result = match_skills(resume_skills, job_skills)
+    match_result = match_skills(resume_skills, job_skills, job_description)
     
     # 3. Output score and relevant details
     return {
         "score": match_result["score"],
+        "keyword_score": match_result.get("keyword_score", 0.0),
+        "semantic_score": match_result.get("semantic_score", 0.0),
+        "matched_skills": match_result.get("matched_skills", []),
+        "top_semantic_matches": match_result.get("top_semantic_matches", []),
         "matched_required": match_result["matched_required"],
         "matched_optional": match_result["matched_optional"],
         "missing_required": match_result["missing_required"],
@@ -102,7 +106,7 @@ async def rank_endpoint(
         extracted_data = parse_resume(file_bytes, file.filename)
         resume_skills = extracted_data.get("skills", [])
         
-        match_result = match_skills(resume_skills, job_skills)
+        match_result = match_skills(resume_skills, job_skills, job_description)
         results.append({
             "name": file.filename,
             "score": match_result["score"]
@@ -124,7 +128,7 @@ async def report_endpoint(
     job_skills = extract_job_skills(job_description)
     
     # 3. Match skills
-    match_result = match_skills(resume_skills, job_skills)
+    match_result = match_skills(resume_skills, job_skills, job_description)
     
     pdf_path = generate_pdf(match_result)
     

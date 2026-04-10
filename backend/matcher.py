@@ -1,9 +1,11 @@
-def match_skills(resume_skills: list, job_skills: dict) -> dict:
+def match_skills(resume_skills: list, job_skills: dict, job_description: str = "") -> dict:
     """
     Match skills between a list of parsed resume skills and categorized job requirements.
     job_skills is expected to be a dict: {"required_skills": [...], "optional_skills": [...]}
     Both input lists contain dicts: [{"name": "skill", "level": "Advanced"}, ...]
     """
+    import uuid
+    from vector_store import store_resume_skills, semantic_match
     # Normalize inputs
     from normalizer import normalize_skills
     from hierarchy import infer_hierarchy
@@ -52,24 +54,38 @@ def match_skills(resume_skills: list, job_skills: dict) -> dict:
     # Calculation
     total_possible = (len(processed_req) * 2) + len(processed_opt)
     
-    if total_possible == 0:
-        return {
-            "score": 0.0,
-            "matched_required": [],
-            "matched_optional": [],
-            "missing_required": [],
-            "missing_optional": [],
-            "explanation": "No specific skills identified in the job description."
-        }
+    keyword_score = 0.0
+    if total_possible > 0:
+        matched_score_val = (len(matched_required) * 2) + len(matched_optional)
+        keyword_score = (matched_score_val / total_possible) * 100
         
-    matched_score = (len(matched_required) * 2) + len(matched_optional)
-    score = (matched_score / total_possible) * 100
+    # Semantic Matching Step
+    resume_id = str(uuid.uuid4())
+    store_resume_skills(norm_resume, resume_id)
     
-    explanation_text = f"The candidate matches {round(score, 2)}% based on weighted scoring. "
+    semantic_result = semantic_match(job_description, resume_id)
+    semantic_score = semantic_result.get("semantic_score", 0.0)
+    top_semantic_matches = semantic_result.get("top_matches", [])
+    
+    final_score = (keyword_score * 0.5) + (semantic_score * 0.5)
+    
+    explanation_text = f"The candidate matches {round(final_score, 2)}% overall. "
+    explanation_text += f"(Keyword Score: {round(keyword_score, 2)}%, Semantic Score: {round(semantic_score, 2)}%) "
     explanation_text += f"Matched {len(matched_required)}/{len(processed_req)} required skills, and {len(matched_optional)}/{len(processed_opt)} optional skills."
     
+    # Safely extract skill names
+    matched_skills = []
+    for s in matched_required:
+        matched_skills.append(s.get("name") if isinstance(s, dict) else str(s))
+    for s in matched_optional:
+        matched_skills.append(s.get("name") if isinstance(s, dict) else str(s))
+    
     return {
-        "score": round(score, 2),
+        "score": round(final_score, 2),
+        "keyword_score": round(keyword_score, 2),
+        "semantic_score": round(semantic_score, 2),
+        "matched_skills": matched_skills,
+        "top_semantic_matches": top_semantic_matches,
         "matched_required": matched_required,
         "matched_optional": matched_optional,
         "missing_required": missing_required,
