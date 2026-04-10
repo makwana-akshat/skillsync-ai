@@ -8,6 +8,13 @@ import hashlib
 from openai import OpenAI
 from dotenv import load_dotenv
 
+try:
+    import pytesseract
+    from pdf2image import convert_from_path
+except ImportError:
+    pytesseract = None
+    convert_from_path = None
+
 load_dotenv()
 
 # Global cache for skill extraction (keys: hash of text, values: list of skills)
@@ -23,9 +30,37 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     try:
         with pdfplumber.open(temp_path) as pdf:
             for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
+                words = page.extract_words()
+                bboxes = [w["x0"] for w in words] if words else []
+                if bboxes:
+                    mid_x = page.width / 2
+                    left_words = sum(1 for x in bboxes if x < mid_x)
+                    right_words = sum(1 for x in bboxes if x >= mid_x)
+                    
+                    if left_words > 0 and right_words > 0:
+                        left_crop = page.crop((0, 0, mid_x, page.height))
+                        right_crop = page.crop((mid_x, 0, page.width, page.height))
+                        left_text = left_crop.extract_text()
+                        right_text = right_crop.extract_text()
+                        if left_text: text += left_text + "\n"
+                        if right_text: text += right_text + "\n"
+                    else:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text + "\n"
+                            
+                tables = page.extract_tables()
+                for table in tables:
+                    for row in table:
+                        row_text = " | ".join([str(cell).strip() for cell in row if cell])
+                        if row_text:
+                            text += row_text + "\n"
+                            
+        if not text.strip() and convert_from_path and pytesseract:
+            images = convert_from_path(temp_path)
+            for img in images:
+                text += pytesseract.image_to_string(img) + "\n"
+                
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
@@ -34,7 +69,15 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
 def extract_text_from_docx(file_bytes: bytes) -> str:
     """Extract text from DOCX using python-docx."""
     doc = docx.Document(io.BytesIO(file_bytes))
-    return "\n".join([para.text for para in doc.paragraphs])
+    text = "\n".join([para.text for para in doc.paragraphs])
+    
+    for table in doc.tables:
+        for row in table.rows:
+            row_text = " | ".join([cell.text.strip() for cell in row.cells if cell.text])
+            if row_text:
+                text += "\n" + row_text
+                
+    return text
     
 def extract_text_from_txt(file_bytes: bytes) -> str:
     """Extract text from plain text file."""
@@ -187,14 +230,21 @@ def parse_resume(file_bytes: bytes, filename: str) -> dict:
         elif ext in ["txt", "text"]:
             extracted_text = extract_text_from_txt(file_bytes)
         else:
-            return {"error": f"Unsupported file format: {ext}", "skills": []}
+            return {"error": f"Unsupported file format: {ext}", "skills": [], "raw_text": "", "text_hash": ""}
 
         if not extracted_text.strip():
-            return {"error": "Could not extract any text from the file", "skills": []}
+            return {"error": "Could not extract any text from the file", "skills": [], "raw_text": "", "text_hash": ""}
 
+        text_hash = hashlib.md5(extracted_text.strip().encode()).hexdigest()
+        cleaned_text = extracted_text.strip()
+        
         # Use the general extractor
-        skills = extract_skills_from_text(extracted_text)
-        return {"skills": skills}
+        skills = extract_skills_from_text(cleaned_text)
+        return {
+            "skills": skills,
+            "raw_text": cleaned_text,
+            "text_hash": text_hash
+        }
 
     except Exception as e:
-        return {"error": f"Parsing error: {str(e)}", "skills": []}
+        return {"error": f"Parsing error: {str(e)}", "skills": [], "raw_text": "", "text_hash": ""}
