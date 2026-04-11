@@ -61,13 +61,7 @@ async def parse_endpoint(file: UploadFile = File(...)):
         "processed_skills": registry_result.get("processed_skills", []),
         "emerging_skills": registry_result.get("emerging_candidates", []),
         "store_updates": registry_result.get("store_updates", []),
-        "raw_skills": raw_skills, # Keeping raw for reference
-        "personal_info": extracted_data.get("personal_info", {}),
-        "experience": extracted_data.get("experience", []),
-        "education": extracted_data.get("education", []),
-        "projects": extracted_data.get("projects", []),
-        "certifications": extracted_data.get("certifications", []),
-        "publications": extracted_data.get("publications", [])
+        "raw_skills": raw_skills,
     }
 
 @app.post("/analyze")

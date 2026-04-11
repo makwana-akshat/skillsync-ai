@@ -5,17 +5,17 @@ import os
 import json
 import io
 import hashlib
+from groq import Groq
 from openai import OpenAI
-from table_extractor import extract_tables_from_bytes
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Global cache for resume parsing (keys: hash of text, values: dict of structured data)
-PARSE_CACHE = {}
+# Global cache for skill extraction (keys: hash of text, values: list of skills)
+SKILL_CACHE = {}
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text from PDF using pdfplumber + table_extractor for tabular data."""
+    """Extract text from PDF using pdfplumber."""
     text = ""
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_pdf:
         temp_pdf.write(file_bytes)
@@ -24,43 +24,28 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     try:
         with pdfplumber.open(temp_path) as pdf:
             for page in pdf.pages:
+                # Extract plain text
                 page_text = page.extract_text()
                 if page_text:
                     text += page_text + "\n"
+                
+                # Extract tables
+                tables = page.extract_tables()
+                for table in tables:
+                    for row in table:
+                        # Filter out None values and join row components
+                        row_text = " ".join([str(cell) for cell in row if cell is not None])
+                        if row_text:
+                            text += row_text + "\n"
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
-
-    # --- Table extraction pass (vector + OCR fallback) ---
-    try:
-        table_result = extract_tables_from_bytes(file_bytes)
-        for tbl in table_result.get("tables", []):
-            rows = tbl.get("rows", [])
-            if rows:
-                text += "\n[TABLE]\n"
-                for row in rows:
-                    text += " | ".join(row) + "\n"
-                text += "[/TABLE]\n"
-    except Exception as e:
-        # Table extraction is best-effort; don't block the main pipeline
-        print(f"Table extraction warning: {e}")
-
     return text
 
 def extract_text_from_docx(file_bytes: bytes) -> str:
-    """Extract text from DOCX using python-docx (paragraphs + tables)."""
+    """Extract text from DOCX using python-docx."""
     doc = docx.Document(io.BytesIO(file_bytes))
-    text = "\n".join([para.text for para in doc.paragraphs])
-
-    # --- Extract DOCX tables ---
-    for table in doc.tables:
-        text += "\n[TABLE]\n"
-        for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells]
-            text += " | ".join(cells) + "\n"
-        text += "[/TABLE]\n"
-
-    return text
+    return "\n".join([para.text for para in doc.paragraphs])
     
 def extract_text_from_txt(file_bytes: bytes) -> str:
     """Extract text from plain text file."""
@@ -69,70 +54,59 @@ def extract_text_from_txt(file_bytes: bytes) -> str:
     except UnicodeDecodeError:
         return file_bytes.decode("latin-1")
 
-def extract_structured_data(text: str) -> dict:
+def extract_skills_from_text(text: str) -> list:
     """
-    Use Groq LLM to extract structured resume data.
+    Use Groq LLM to extract a flat list of strings representing skills.
+    Uses caching and temperature=0 for consistency.
     """
     if not text.strip():
-        return {}
+        return []
 
+    # Check cache first
     text_hash = hashlib.md5(text.strip().encode()).hexdigest()
-    if text_hash in PARSE_CACHE:
-        return PARSE_CACHE[text_hash]
+    if text_hash in SKILL_CACHE:
+        return SKILL_CACHE[text_hash]
 
+    # 1. Get API key
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY is not set. Please check your .env file.")
 
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://api.groq.com/openai/v1",
-    )
+    client = Groq(api_key=api_key)
 
-    prompt = f"""you are a resume parsing assistant. I will provide raw resume text delimited below. Extract structured information and return ONLY one valid JSON object (no prose, no markdown, no explanations). If any field is not present, return an empty string or an empty array for that field. Do NOT invent or guess facts; if you are unsure, leave the field empty.
+    # 2. Hardened Prompt for Structured Skills with Proficiency
+    prompt = f"""
+    Extract a list of technical and soft skills from the following text and estimate the proficiency level for each skill based on the context (e.g., years of experience, depth of projects, specific mentions).
+    
+    Proficiency Levels: Beginner, Intermediate, Advanced.
+    - If the context suggests high expertise or many years (ex: "5 years Python", "Expert in", "Lead developer"), use 'Advanced'.
+    - If the context suggests basic knowledge or brief mentions (ex: "familiar with", "exposure to"), use 'Beginner'.
+    - Use 'Intermediate' as the default if the context is unclear.
+    
+    Return ONLY a JSON object in this format:
+    {{
+      "skills": [
+        {{"name": "Python", "level": "Advanced"}},
+        {{"name": "React", "level": "Intermediate"}}
+      ]
+    }}
 
-Output JSON schema (must match exactly): {{ "personal_info": {{ "name": "", "email": "", "phone": "", "location": "", "linkedin": "", "other": "" }}, "experience": [ {{ "role": "", "company": "", "start_date": "", "end_date": "", "location": "", "description": "", "bullets": [] }} ], "education": [ {{ "degree": "", "institution": "", "start_date": "", "end_date": "", "details": "" }} ], "skills": [ {{ "name": "", "canonical": "", "level": "", "source_context": "", "confidence": 0.0 }} ], "certifications": [ {{ "name": "", "issuer": "", "date": "" }} ], "projects": [ {{ "name": "", "description": "", "tech": [], "link": "" }} ], "publications": [ {{ "title": "", "venue": "", "year": "", "link": "" }} ], "raw_text_excerpt": "" }}
-
-Normalization mapping (use these canonical forms; if a skill is not listed, set canonical to lowercase of the name):
-
-ml -> machine learning
-react.js, reactjs -> react
-js -> javascript
-py -> python
-nodejs -> node.js`
-mongodb -> mongo db
-expressjs -> express.js
-aws -> amazon web services
-gcp -> google cloud platform
-k8s -> kubernetes
-
-Proficiency heuristics (use to choose level):
-Advanced: explicit phrases like "expert", "senior", "lead", "5+ years", "years of experience", "built production", "architected".
-Beginner: "familiar with", "exposure to", "learning", "introductory".
-Intermediate: default if context is unclear.
-
-Layout & table handling rules:
-If the text appears to be from a multi-column layout, reorder content by grouping lines under headings and output sections in logical order.
-If you detect table-like lines, treat each table cell in the skills column as a separate skill. If neighboring columns look like levels or years, include them in source_context or confidence hints.
-Content between [TABLE] and [/TABLE] markers has already been extracted from document tables. Parse each pipe-delimited row as a table row. Treat each cell in a skills column as a separate skill entry.
-
-Safety & hallucinaton rules:
-Do not invent companies, dates, or publications.
-Provide short source_context snippets (10-40 words) exactly as they appear in the resume.
-Provide a confidence score between 0.0 and 1.0 for each skill. If you are unsure, use 0.6.
-
-Text:
-{text[:4000]}
-"""
+    Text:
+    {text[:4000]}
+    """
 
     try:
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
+            max_completion_tokens=1024,
+            top_p=1,
+            stream=False,
+            stop=None
         )
 
-        content = response.choices[0].message.content.strip()
+        content = completion.choices[0].message.content.strip()
 
         # 🔥 SAFE JSON PARSE
         try:
@@ -143,19 +117,9 @@ Text:
             if json_match:
                 data = json.loads(json_match.group())
             else:
-                data = {}
+                return []
 
-        # Default structure fallback
-        default_data = {
-            "personal_info": {}, "experience": [], "education": [], 
-            "skills": [], "certifications": [], "projects": [], 
-            "publications": [], "raw_text_excerpt": text[:2000]
-        }
-        
-        if isinstance(data, dict):
-            default_data.update(data)
-
-        raw_skills = default_data.get("skills", [])
+        raw_skills = data.get("skills", [])
         
         # Structure cleaning logic
         processed_skills = []
@@ -168,31 +132,23 @@ Text:
                     level = "Intermediate"
                 
                 if name.lower() not in seen_names:
-                    item["level"] = level
-                    processed_skills.append(item)
+                    processed_skills.append({"name": name, "level": level})
                     seen_names.add(name.lower())
             elif isinstance(item, str):
                 # Fallback for simple strings
                 name = item.strip()
                 if name.lower() not in seen_names:
-                    processed_skills.append({"name": name, "level": "Intermediate", "canonical": name.lower(), "source_context": "", "confidence": 0.6})
+                    processed_skills.append({"name": name, "level": "Intermediate"})
                     seen_names.add(name.lower())
         
-        default_data["skills"] = processed_skills
-        
         # Save to cache
-        PARSE_CACHE[text_hash] = default_data
-        return default_data
+        SKILL_CACHE[text_hash] = processed_skills
+        return processed_skills
 
     except Exception as e:
-        print(f"Error extracting data: {str(e)}")
+        print(f"Error extracting skills: {str(e)}")
         # Raise the error so it propagates to the frontend and isn't silently swallowed
         raise RuntimeError(f"Skill extraction failed: {str(e)}")
-
-def extract_skills_from_text(text: str) -> list:
-    """Legacy function to maintain backwards compatibility where expecting a list of dicts."""
-    data = extract_structured_data(text)
-    return data.get("skills", [])
 
 def extract_job_skills(text: str) -> dict:
     """Extract skills and categorize them into required and optional based on simple keywords."""
@@ -249,8 +205,8 @@ def parse_resume(file_bytes: bytes, filename: str) -> dict:
             return {"error": "Could not extract any text from the file", "skills": []}
 
         # Use the general extractor
-        parsed_data = extract_structured_data(extracted_text)
-        return parsed_data
+        skills = extract_skills_from_text(extracted_text)
+        return {"skills": skills}
 
     except Exception as e:
         return {"error": f"Parsing error: {str(e)}", "skills": []}
