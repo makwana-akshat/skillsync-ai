@@ -12,6 +12,7 @@ from hierarchy import infer_hierarchy
 from skill_registry import process_skills
 from matcher import match_skills
 from report import generate_pdf
+from table_extractor import extract_tables_from_bytes
 
 app = FastAPI(title="SkillSync AI", description="AI-based system for parsing and matching skills")
 
@@ -150,3 +151,13 @@ async def report_endpoint(
         filename=f"Report_{file.filename}.pdf",
         media_type="application/pdf"
     )
+
+@app.post("/extract-tables")
+async def extract_tables_endpoint(file: UploadFile = File(...)):
+    """Extract all tables from a PDF and return structured JSON."""
+    file_bytes = await file.read()
+    ext = file.filename.lower().split(".")[-1]
+    if ext != "pdf":
+        return {"error": "Only PDF files are supported for table extraction."}
+    result = extract_tables_from_bytes(file_bytes)
+    return result

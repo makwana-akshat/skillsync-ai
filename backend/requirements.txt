@@ -9,3 +9,8 @@ reportlab
 python-dotenv
 chromadb
 sentence-transformers
+PyMuPDF
+opencv-python-headless
+pytesseract
+Pillow
+# camelot-py[cv]  # optional — uncomment if you need camelot lattice/stream extraction

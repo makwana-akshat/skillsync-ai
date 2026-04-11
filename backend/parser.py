@@ -6,6 +6,7 @@ import json
 import io
 import hashlib
 from openai import OpenAI
+from table_extractor import extract_tables_from_bytes
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,7 +15,7 @@ load_dotenv()
 PARSE_CACHE = {}
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text from PDF using pdfplumber."""
+    """Extract text from PDF using pdfplumber + table_extractor for tabular data."""
     text = ""
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_pdf:
         temp_pdf.write(file_bytes)
@@ -29,12 +30,37 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+    # --- Table extraction pass (vector + OCR fallback) ---
+    try:
+        table_result = extract_tables_from_bytes(file_bytes)
+        for tbl in table_result.get("tables", []):
+            rows = tbl.get("rows", [])
+            if rows:
+                text += "\n[TABLE]\n"
+                for row in rows:
+                    text += " | ".join(row) + "\n"
+                text += "[/TABLE]\n"
+    except Exception as e:
+        # Table extraction is best-effort; don't block the main pipeline
+        print(f"Table extraction warning: {e}")
+
     return text
 
 def extract_text_from_docx(file_bytes: bytes) -> str:
-    """Extract text from DOCX using python-docx."""
+    """Extract text from DOCX using python-docx (paragraphs + tables)."""
     doc = docx.Document(io.BytesIO(file_bytes))
-    return "\n".join([para.text for para in doc.paragraphs])
+    text = "\n".join([para.text for para in doc.paragraphs])
+
+    # --- Extract DOCX tables ---
+    for table in doc.tables:
+        text += "\n[TABLE]\n"
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            text += " | ".join(cells) + "\n"
+        text += "[/TABLE]\n"
+
+    return text
     
 def extract_text_from_txt(file_bytes: bytes) -> str:
     """Extract text from plain text file."""
@@ -88,6 +114,7 @@ Intermediate: default if context is unclear.
 Layout & table handling rules:
 If the text appears to be from a multi-column layout, reorder content by grouping lines under headings and output sections in logical order.
 If you detect table-like lines, treat each table cell in the skills column as a separate skill. If neighboring columns look like levels or years, include them in source_context or confidence hints.
+Content between [TABLE] and [/TABLE] markers has already been extracted from document tables. Parse each pipe-delimited row as a table row. Treat each cell in a skills column as a separate skill entry.
 
 Safety & hallucinaton rules:
 Do not invent companies, dates, or publications.
