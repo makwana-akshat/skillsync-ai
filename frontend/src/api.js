@@ -2,6 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: 'http://localhost:8000',
+  timeout: 120000, // 120s timeout — LLM + embedding can take 15-30s
 });
 
 export const analyzeResume = async (file, jobDescription) => {

@@ -1,18 +1,113 @@
 import datetime
 
 known_canonicals = [
-  "python", "javascript", "react", "node.js",
-  "tensorflow", "pytorch", "machine learning",
-  "deep learning", "sql", "mongodb"
+  # Programming Languages
+  "python", "javascript", "java", "c", "c++", "c#", "go", "rust", "ruby",
+  "php", "swift", "kotlin", "typescript", "scala", "r", "perl", "lua",
+  "dart", "elixir", "haskell", "matlab", "objective-c", "shell", "bash",
+  
+  # Web Frameworks & Libraries
+  "react", "angular", "vue.js", "vue", "next.js", "nuxt.js", "svelte",
+  "node.js", "express.js", "django", "flask", "fastapi", "spring",
+  "spring boot", "rails", "laravel", "asp.net", "jquery", "bootstrap",
+  "tailwind css", "tailwindcss",
+  
+  # Mobile
+  "react native", "flutter", "swiftui", "android", "ios",
+  
+  # Databases
+  "sql", "mysql", "postgresql", "postgres", "mongodb", "mongo db",
+  "redis", "elasticsearch", "cassandra", "dynamodb", "sqlite",
+  "oracle", "microsoft sql server", "neo4j", "firebase",
+  
+  # Cloud & DevOps
+  "amazon web services", "aws", "google cloud platform", "gcp",
+  "microsoft azure", "azure", "docker", "kubernetes", "terraform",
+  "ansible", "jenkins", "github actions", "gitlab ci", "circleci",
+  "ci/cd", "linux", "nginx", "apache",
+  
+  # AI / ML / Data Science
+  "machine learning", "deep learning", "tensorflow", "pytorch",
+  "scikit-learn", "keras", "opencv", "nlp", "natural language processing",
+  "computer vision", "data science", "data analysis", "data engineering",
+  "pandas", "numpy", "scipy", "matplotlib", "spark", "apache spark",
+  "hadoop", "airflow", "tableau", "power bi", "jupyter",
+  "hugging face", "langchain", "llm", "generative ai",
+  
+  # Tools & Platforms
+  "git", "github", "gitlab", "bitbucket", "jira", "confluence",
+  "figma", "postman", "swagger", "graphql", "rest api", "restful api",
+  "grpc", "rabbitmq", "kafka", "apache kafka", "celery",
+  
+  # Testing
+  "jest", "mocha", "pytest", "selenium", "cypress", "playwright",
+  "unit testing", "integration testing",
+  
+  # Soft Skills
+  "communication", "leadership", "teamwork", "problem solving",
+  "project management", "agile", "scrum", "kanban",
+  "critical thinking", "time management",
+  
+  # Other
+  "html", "css", "sass", "webpack", "vite", "npm", "yarn",
+  "api design", "microservices", "system design", "blockchain",
+  "cybersecurity", "networking", "embedded systems",
 ]
 
 canonical_mapping = {
+  # JavaScript ecosystem
   "js": "javascript",
+  "ts": "typescript",
   "react.js": "react",
+  "reactjs": "react",
+  "react js": "react",
+  "vue js": "vue.js",
+  "vuejs": "vue.js",
+  "next js": "next.js",
+  "nextjs": "next.js",
+  "nuxt js": "nuxt.js",
+  "nuxtjs": "nuxt.js",
   "nodejs": "node.js",
+  "node js": "node.js",
+  "expressjs": "express.js",
+  "express js": "express.js",
+  
+  # Python ecosystem
+  "py": "python",
   "scikit learn": "scikit-learn",
+  "sklearn": "scikit-learn",
+  "tf": "tensorflow",
+  
+  # AI/ML
   "ml": "machine learning",
-  "dl": "deep learning"
+  "dl": "deep learning",
+  "artificial intelligence": "machine learning",
+  "ai": "machine learning",
+  "gen ai": "generative ai",
+  "genai": "generative ai",
+  "large language models": "llm",
+  "large language model": "llm",
+  
+  # Cloud
+  "aws": "amazon web services",
+  "gcp": "google cloud platform",
+  "google cloud": "google cloud platform",
+  "k8s": "kubernetes",
+  "ms azure": "microsoft azure",
+  
+  # Databases
+  "mongo": "mongodb",
+  "postgres": "postgresql",
+  "pg": "postgresql",
+  "mssql": "microsoft sql server",
+  "sql server": "microsoft sql server",
+  
+  # Other
+  "ci cd": "ci/cd",
+  "cicd": "ci/cd",
+  "rest": "rest api",
+  "restful": "restful api",
+  "tailwind": "tailwind css",
 }
 
 def process_skills(skills: list) -> dict:
@@ -54,9 +149,9 @@ def process_skills(skills: list) -> dict:
             known = True
             confidence = 0.9
             action = f"map_to:{canonical}"
-        # 3. Unknown skill
+        # 3. Unknown skill — still assign canonical as lowercase name for matching
         else:
-            canonical = ""
+            canonical = lower_name
             known = False
             confidence = 0.3
             action = "flag_for_review"

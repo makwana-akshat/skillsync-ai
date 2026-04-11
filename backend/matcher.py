@@ -17,12 +17,12 @@ def match_skills(resume_skills: list, job_skills: dict, job_description: str = "
     processed_resume = resume_registry["processed_skills"]
     emerging_skills = resume_registry["emerging_candidates"]
     
-    # Store ONLY known skills mapped by their canonical name
+    # Store ALL skills mapped by their canonical name (known and unknown)
     resume_map = {}
     for s in processed_resume:
-        if s.get("known") and s.get("canonical"):
-            # If multiple occur, keep highest level or first. Here we just take last/first
-            resume_map[s["canonical"]] = s.get("level", "Intermediate")
+        canonical = s.get("canonical", s.get("name", "").lower().strip())
+        if canonical:
+            resume_map[canonical] = s.get("level", "Intermediate")
             
     # 2. Process Job Skills
     req_skills_raw = job_skills.get("required_skills", [])
@@ -34,9 +34,9 @@ def match_skills(resume_skills: list, job_skills: dict, job_description: str = "
     req_registry = process_skills(req_norm)["processed_skills"]
     opt_registry = process_skills(opt_norm)["processed_skills"]
     
-    # Keep only known skills for scoring
-    valid_req = [s for s in req_registry if s.get("known") and s.get("canonical")]
-    valid_opt = [s for s in opt_registry if s.get("known") and s.get("canonical")]
+    # Include all skills for scoring (not just known ones)
+    valid_req = [s for s in req_registry if s.get("canonical")]
+    valid_opt = [s for s in opt_registry if s.get("canonical")]
     
     # 3. Keyword Matching logic
     matched_required = []
@@ -80,8 +80,8 @@ def match_skills(resume_skills: list, job_skills: dict, job_description: str = "
     # 5. Semantic Matching Step
     # We pass the processed resume items (which have 'name' and 'canonical') to the vector DB
     # We could send Canonical names to make it cleaner
-    semantic_skills = [{"name": s["canonical"], "level": s["level"]} 
-                       for s in processed_resume if s.get("known") and s.get("canonical")]
+    semantic_skills = [{"name": s.get("canonical", s["name"].lower()), "level": s["level"]} 
+                       for s in processed_resume if s.get("canonical")]
     
     resume_id = str(uuid.uuid4())
     store_resume_skills(semantic_skills, resume_id)
@@ -90,7 +90,7 @@ def match_skills(resume_skills: list, job_skills: dict, job_description: str = "
     semantic_score = semantic_result.get("semantic_score", 0.0)
     top_semantic_matches = semantic_result.get("top_matches", [])
     
-    final_score = (keyword_score * 0.5) + (semantic_score * 0.5)
+    final_score = (keyword_score * 0.70) + (semantic_score * 0.30)
     
     explanation_text = f"The candidate matches {round(final_score, 2)}% overall. "
     explanation_text += f"(Keyword Score: {round(keyword_score, 2)}%, Semantic Score: {round(semantic_score, 2)}%) "

@@ -97,7 +97,7 @@ def extract_skills_from_text(text: str) -> list:
 
     try:
         completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             max_completion_tokens=1024,
@@ -159,6 +159,7 @@ def extract_job_skills(text: str) -> dict:
     
     text_lower = text.lower()
     import re
+    # Split text into sections based on newlines to guess optional/required context
     sections = re.split(r'\n+', text_lower)
     
     for skill in all_skills:
@@ -167,10 +168,11 @@ def extract_job_skills(text: str) -> dict:
         is_required = False
         
         for section in sections:
+            # If the skill name is in this line/section, check the phrasing
             if skill_name in section:
-                if "preferred" in section or "nice to have" in section:
+                if "preferred" in section or "nice to have" in section or "plus" in section or "optional" in section:
                     is_optional = True
-                if "must" in section or "required" in section or "mandatory" in section:
+                if "must" in section or "required" in section or "mandatory" in section or "need" in section or "essential" in section:
                     is_required = True
                     
         # Rule: Default to required, unless marked explicitly as optional and NOT required

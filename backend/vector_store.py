@@ -1,33 +1,42 @@
 import uuid
 import chromadb
-from sentence_transformers import SentenceTransformer
 
-# 1. Load embedding model
-model = SentenceTransformer("all-MiniLM-L6-v2")
+# Lazy-loaded embedding model (avoids blocking on import)
+_model = None
 
-# 3. Initialize ChromaDB (in-memory)
+def _get_model():
+    global _model
+    if _model is None:
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _model
+
+# Initialize ChromaDB (in-memory)
 chroma_client = chromadb.Client()
 
 # Create or get collection
 collection = chroma_client.get_or_create_collection(name="resume_skills")
 
-def get_embedding(text: str) -> list[float]:
+def get_embedding(text) -> list[float]:
     """
-    Generate an embedding for the given text.
+    Generate embedding(s) for the given text (str or list of str).
     Text is converted to lowercase to improve semantic similarity accuracy.
     """
+    model = _get_model()
+    if isinstance(text, list):
+        processed = [str(t).lower().strip() for t in text]
+        return model.encode(processed, batch_size=64, show_progress_bar=False).tolist()
     text_processed = str(text).lower().strip()
-    # model.encode returns a numpy array, we convert to list of floats
-    return model.encode(text_processed).tolist()
+    return model.encode(text_processed, show_progress_bar=False).tolist()
 
 def store_resume_skills(skills: list, resume_id: str):
     """
     Stores a list of resume skills in the ChromaDB collection.
     Avoids storing duplicate skills for the same resume.
+    Uses batch embedding for performance.
     """
     stored_skills = set()
     docs = []
-    embeddings = []
     ids = []
     metadatas = []
     
@@ -42,17 +51,13 @@ def store_resume_skills(skills: list, resume_id: str):
             continue
             
         stored_skills.add(skill_name_processed)
-        
-        # Get embedding
-        vector = get_embedding(skill_name_processed)
-        
         docs.append(skill_name_processed)
-        embeddings.append(vector)
-        # Use unique ID format as requested
         ids.append(f"{resume_id}_{i}")
         metadatas.append({"resume_id": resume_id})
         
     if docs:
+        # Batch encode all skills at once instead of one-by-one
+        embeddings = get_embedding(docs)
         collection.add(
             documents=docs,
             embeddings=embeddings,
@@ -92,7 +97,7 @@ def semantic_match(job_description: str, resume_id: str = None) -> dict:
     # Query top 5 similar skills
     results = collection.query(
         query_embeddings=[job_embedding],
-        n_results=min(5, total_skills), # Can't request more than what's stored
+        n_results=min(10, total_skills), # Can't request more than what's stored
         where=where_clause,
         include=["documents", "distances"]
     )
@@ -103,11 +108,11 @@ def semantic_match(job_description: str, resume_id: str = None) -> dict:
     top_matches = []
     relevant_matches = 0
     
-    # L2 distance or Cosine distance threshold. For all-MiniLM, similarity is better if distance is smaller.
-    # We will use distance < 1.2 as a rough threshold for a "relevant" match.
+    # L2 distance threshold. For all-MiniLM, smaller distance = better match.
+    # Threshold 1.5 captures reasonably related skills.
     for doc, dist in zip(matched_docs, matched_distances):
         top_matches.append(doc)
-        if dist < 1.2:
+        if dist < 1.5:
             relevant_matches += 1
             
     # Calculate semantic_score
