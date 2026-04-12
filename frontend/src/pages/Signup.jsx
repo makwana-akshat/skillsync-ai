@@ -6,12 +6,18 @@ import { useAuth } from '../AuthContext';
 
 export default function Signup() {
   const navigate = useNavigate();
-  const { loginAuth } = useAuth();
+  const { loginAuth, isAuthenticated } = useAuth();
   const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleSignup = async (e) => {
     e.preventDefault();
@@ -22,7 +28,7 @@ export default function Signup() {
       // Auto login after signup
       const data = await login(email, password);
       loginAuth(data.access_token, data.user);
-      navigate('/');
+      navigate('/', { replace: true });
     } catch (err) {
       setError(err.response?.data?.detail || 'An error occurred during signup');
     } finally {

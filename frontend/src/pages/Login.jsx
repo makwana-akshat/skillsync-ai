@@ -6,11 +6,17 @@ import { useAuth } from '../AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { loginAuth } = useAuth();
+  const { loginAuth, isAuthenticated } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -19,7 +25,7 @@ export default function Login() {
     try {
       const data = await login(email, password);
       loginAuth(data.access_token, data.user);
-      navigate('/');
+      navigate('/', { replace: true });
     } catch (err) {
       setError(err.response?.data?.detail || 'Invalid email or password');
     } finally {
