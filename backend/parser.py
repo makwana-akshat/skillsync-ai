@@ -151,49 +151,87 @@ def extract_skills_from_text(text: str) -> list:
         raise RuntimeError(f"Skill extraction failed: {str(e)}")
 
 def extract_job_skills(text: str) -> dict:
-    """Extract skills and categorize them into required and optional based on context headers."""
-    all_skills = extract_skills_from_text(text)
+    """Use Groq LLM to accurately categorize skills into required and optional based on semantics."""
+    if not text.strip():
+        return {"required_skills": [], "optional_skills": []}
+
+    # Unique cache key for JD classification
+    text_hash = hashlib.md5(("job_" + text.strip()).encode()).hexdigest()
+    if text_hash in SKILL_CACHE:
+        return SKILL_CACHE[text_hash]
+
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise ValueError("GROQ_API_KEY is not set.")
+
+    client = Groq(api_key=api_key)
+
+    prompt = f"""
+    You are an expert HR recruiter. Analyze the following Job Description text and extract all technical and soft skills.
+    Crucially, categorize them accurately into "required_skills" and "optional_skills" based on semantic context.
+    - If a skill is listed under 'Nice to have', 'Good to have', 'Bonus', 'Preferred', or implied as optional, put it in optional_skills.
+    - Otherwise, default to required_skills.
     
-    required_skills = []
-    optional_skills = []
+    For each skill, estimate the proficiency level (Beginner, Intermediate, Advanced).
     
-    text_lower = text.lower()
-    sections = [s.strip() for s in text_lower.split('\n') if s.strip()]
-    
-    skill_states = {}
-    current_mode = "required" # Default mode
-    
-    for section in sections:
-        # Switch contexts based on keywords
-        if any(kw in section for kw in ["preferred", "nice to have", "plus", "optional", "good to have", "bonus", "advantage"]):
-            current_mode = "optional"
-        elif any(kw in section for kw in ["must", "required", "mandatory", "need", "essential", "requirements", "core", "qualifications", "responsibilities"]):
-            current_mode = "required"
-        elif section.endswith(':') and len(section.split()) <= 5:
-            # If it's a generic header like "Experience:" or "Technical Skills:", reset to required
-            current_mode = "required"
-            
-        # Assign states to skills found within this context line
-        for skill in all_skills:
-            skill_name = skill["name"].lower()
-            if skill_name in section:
-                if current_mode == "required":
-                    skill_states[skill_name] = "required"
-                elif skill_name not in skill_states:
-                    skill_states[skill_name] = "optional"
+    Return ONLY a JSON object exactly matching this format:
+    {{
+      "required_skills": [
+         {{"name": "Python", "level": "Advanced"}}
+      ],
+      "optional_skills": [
+         {{"name": "React", "level": "Intermediate"}}
+      ]
+    }}
+
+    Job Description:
+    {text[:4000]}
+    """
+
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_completion_tokens=1024,
+            top_p=1,
+            stream=False,
+            stop=None
+        )
+
+        content = completion.choices[0].message.content.strip()
+
+        try:
+            data = json.loads(content)
+        except:
+            import re
+            json_match = re.search(r"\{.*\}", content, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+            else:
+                return {"required_skills": [], "optional_skills": []}
+
+        result = {"required_skills": [], "optional_skills": []}
+        for category in ["required_skills", "optional_skills"]:
+            raw_skills = data.get(category, [])
+            seen_names = set()
+            for item in raw_skills:
+                if isinstance(item, dict) and "name" in item:
+                    name = str(item["name"]).strip()
+                    level = str(item.get("level", "Intermediate")).strip().capitalize()
+                    if level not in ["Beginner", "Intermediate", "Advanced"]:
+                        level = "Intermediate"
                     
-    # Fallback and categorization
-    for skill in all_skills:
-        state = skill_states.get(skill["name"].lower(), "required")
-        if state == "optional":
-            optional_skills.append(skill)
-        else:
-            required_skills.append(skill)
-            
-    return {
-        "required_skills": required_skills,
-        "optional_skills": optional_skills
-    }
+                    if name.lower() not in seen_names:
+                        result[category].append({"name": name, "level": level})
+                        seen_names.add(name.lower())
+
+        SKILL_CACHE[text_hash] = result
+        return result
+
+    except Exception as e:
+        print(f"Error extracting job skills: {str(e)}")
+        return {"required_skills": [], "optional_skills": []}
 
 def parse_resume(file_bytes: bytes, filename: str) -> dict:
     """
