@@ -151,32 +151,41 @@ def extract_skills_from_text(text: str) -> list:
         raise RuntimeError(f"Skill extraction failed: {str(e)}")
 
 def extract_job_skills(text: str) -> dict:
-    """Extract skills and categorize them into required and optional based on simple keywords."""
+    """Extract skills and categorize them into required and optional based on context headers."""
     all_skills = extract_skills_from_text(text)
     
     required_skills = []
     optional_skills = []
     
     text_lower = text.lower()
-    import re
-    # Split text into sections based on newlines to guess optional/required context
-    sections = re.split(r'\n+', text_lower)
+    sections = [s.strip() for s in text_lower.split('\n') if s.strip()]
     
-    for skill in all_skills:
-        skill_name = skill["name"].lower()
-        is_optional = False
-        is_required = False
-        
-        for section in sections:
-            # If the skill name is in this line/section, check the phrasing
+    skill_states = {}
+    current_mode = "required" # Default mode
+    
+    for section in sections:
+        # Switch contexts based on keywords
+        if any(kw in section for kw in ["preferred", "nice to have", "plus", "optional", "good to have", "bonus", "advantage"]):
+            current_mode = "optional"
+        elif any(kw in section for kw in ["must", "required", "mandatory", "need", "essential", "requirements", "core", "qualifications", "responsibilities"]):
+            current_mode = "required"
+        elif section.endswith(':') and len(section.split()) <= 5:
+            # If it's a generic header like "Experience:" or "Technical Skills:", reset to required
+            current_mode = "required"
+            
+        # Assign states to skills found within this context line
+        for skill in all_skills:
+            skill_name = skill["name"].lower()
             if skill_name in section:
-                if "preferred" in section or "nice to have" in section or "plus" in section or "optional" in section:
-                    is_optional = True
-                if "must" in section or "required" in section or "mandatory" in section or "need" in section or "essential" in section:
-                    is_required = True
+                if current_mode == "required":
+                    skill_states[skill_name] = "required"
+                elif skill_name not in skill_states:
+                    skill_states[skill_name] = "optional"
                     
-        # Rule: Default to required, unless marked explicitly as optional and NOT required
-        if is_optional and not is_required:
+    # Fallback and categorization
+    for skill in all_skills:
+        state = skill_states.get(skill["name"].lower(), "required")
+        if state == "optional":
             optional_skills.append(skill)
         else:
             required_skills.append(skill)

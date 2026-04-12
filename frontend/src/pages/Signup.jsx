@@ -1,13 +1,33 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BrainCircuit, ArrowRight } from 'lucide-react';
+import { BrainCircuit, ArrowRight, Loader2 } from 'lucide-react';
+import { signup, login } from '../api';
+import { useAuth } from '../AuthContext';
 
 export default function Signup() {
   const navigate = useNavigate();
+  const { loginAuth } = useAuth();
+  const [companyName, setCompanyName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const handleSignup = (e) => {
+  const handleSignup = async (e) => {
     e.preventDefault();
-    navigate('/');
+    setError(null);
+    setLoading(true);
+    try {
+      await signup(companyName, email, password);
+      // Auto login after signup
+      const data = await login(email, password);
+      loginAuth(data.access_token, data.user);
+      navigate('/');
+    } catch (err) {
+      setError(err.response?.data?.detail || 'An error occurred during signup');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -63,10 +83,16 @@ export default function Signup() {
           <p className="text-gray-500 text-sm mb-8">Start optimizing your hiring process today</p>
 
           <form onSubmit={handleSignup} className="space-y-5">
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/50 text-red-500 text-sm px-4 py-3 rounded-xl">
+                {error}
+              </div>
+            )}
             <div>
               <label htmlFor="company" className="block text-sm font-medium text-gray-400 mb-1.5">Company name</label>
               <input 
                 type="text" id="company" required 
+                value={companyName} onChange={e => setCompanyName(e.target.value)}
                 placeholder="Acme Inc." 
                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all text-sm"
               />
@@ -76,6 +102,7 @@ export default function Signup() {
               <label htmlFor="email" className="block text-sm font-medium text-gray-400 mb-1.5">Work email address</label>
               <input 
                 type="email" id="email" required 
+                value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="name@company.com" 
                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all text-sm"
               />
@@ -85,13 +112,14 @@ export default function Signup() {
               <label htmlFor="password" className="block text-sm font-medium text-gray-400 mb-1.5">Password</label>
               <input 
                 type="password" id="password" required 
+                value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="Create a strong password" 
                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all text-sm"
               />
             </div>
 
-            <button type="submit" className="w-full py-3 rounded-xl font-semibold text-sm bg-emerald-500 hover:bg-emerald-400 text-black transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/30 hover:-translate-y-0.5 active:translate-y-0">
-              Create account <ArrowRight className="w-4 h-4" />
+            <button disabled={loading} type="submit" className="w-full py-3 rounded-xl font-semibold text-sm bg-emerald-500 hover:bg-emerald-400 text-black transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/30 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-70 disabled:cursor-not-allowed">
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Create account <ArrowRight className="w-4 h-4" /></>}
             </button>
           </form>
 

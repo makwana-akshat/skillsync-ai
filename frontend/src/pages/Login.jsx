@@ -1,13 +1,30 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BrainCircuit, ArrowRight } from 'lucide-react';
+import { BrainCircuit, ArrowRight, Loader2 } from 'lucide-react';
+import { login } from '../api';
+import { useAuth } from '../AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { loginAuth } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    navigate('/');
+    setError(null);
+    setLoading(true);
+    try {
+      const data = await login(email, password);
+      loginAuth(data.access_token, data.user);
+      navigate('/');
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Invalid email or password');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -57,10 +74,17 @@ export default function Login() {
           <p className="text-gray-500 text-sm mb-8">Enter your credentials to access the dashboard</p>
 
           <form onSubmit={handleLogin} className="space-y-5">
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/50 text-red-500 text-sm px-4 py-3 rounded-xl">
+                {error}
+              </div>
+            )}
+            
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-400 mb-1.5">Email address</label>
               <input 
                 type="email" id="email" required 
+                value={email} onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@company.com" 
                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all text-sm"
               />
@@ -73,6 +97,7 @@ export default function Login() {
               </div>
               <input 
                 type="password" id="password" required 
+                value={password} onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••" 
                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all text-sm"
               />
@@ -83,8 +108,8 @@ export default function Login() {
               <label htmlFor="remember-me" className="text-sm text-gray-400">Remember me</label>
             </div>
 
-            <button type="submit" className="w-full py-3 rounded-xl font-semibold text-sm bg-emerald-500 hover:bg-emerald-400 text-black transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/30 hover:-translate-y-0.5 active:translate-y-0">
-              Sign in <ArrowRight className="w-4 h-4" />
+            <button disabled={loading} type="submit" className="w-full py-3 rounded-xl font-semibold text-sm bg-emerald-500 hover:bg-emerald-400 text-black transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-400/30 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-70 disabled:cursor-not-allowed">
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Sign in <ArrowRight className="w-4 h-4" /></>}
             </button>
           </form>
 

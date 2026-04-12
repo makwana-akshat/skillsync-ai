@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { BrainCircuit, LayoutDashboard, FileSearch, BarChart2, Users, LogOut, Bell, Settings, User, History, Sun, Moon } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
+import { useAuth } from '../AuthContext';
 
 import Overview from '../components/Overview';
 import AnalyzeResume from '../components/AnalyzeResume';
@@ -13,10 +14,10 @@ import SettingsComponent from '../components/Settings';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
-  const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const { user, logoutAuth } = useAuth();
 
   // Allow child components to switch tabs and pass data
   const [analyzeData, setAnalyzeData] = useState(null);
@@ -25,7 +26,6 @@ export default function Dashboard() {
   useEffect(() => {
     function handleClickOutside(event) {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setShowNotifications(false);
         setShowProfile(false);
       }
     }
@@ -125,10 +125,10 @@ export default function Dashboard() {
         </div>
         
         <div className="p-4 border-t border-gray-100 dark:border-white/5">
-          <Link to="/login" className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 transition-colors">
+          <button onClick={() => { logoutAuth(); navigate('/login'); }} className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 transition-colors">
             <LogOut className="w-4 h-4" />
             Logout
-          </Link>
+          </button>
         </div>
       </aside>
 
@@ -147,52 +147,20 @@ export default function Dashboard() {
               {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
 
-            {/* Notification Button */}
-            <div className="relative">
-              <button 
-                onClick={() => { setShowNotifications(!showNotifications); setShowProfile(false); }}
-                className={`p-2 transition-colors rounded-full relative ${showNotifications ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'}`}
-              >
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-[#12121a]"></span>
-              </button>
-              
-              {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-[#1a1a2e] rounded-xl shadow-xl border border-gray-100 dark:border-white/10 z-50 animate-fade-in py-2">
-                  <div className="px-4 py-3 border-b border-gray-50 dark:border-white/5 flex justify-between items-center">
-                    <h3 className="font-semibold text-gray-800 dark:text-gray-200">Notifications</h3>
-                    <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium cursor-pointer">Mark all as read</span>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto">
-                    <div className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer border-l-4 border-emerald-500 dark:border-emerald-500 bg-emerald-50/30 dark:bg-emerald-500/5">
-                      <p className="text-sm text-gray-800 dark:text-gray-200 font-medium">New match generated</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Alice Smith matched 92% for Frontend Engineer.</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">2 mins ago</p>
-                    </div>
-                    <div className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer">
-                      <p className="text-sm text-gray-800 dark:text-gray-200 font-medium">System Update</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">SkillSync AI has been updated to v1.2</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">1 day ago</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Profile Avatar */}
             <div className="relative">
               <button 
-                onClick={() => { setShowProfile(!showProfile); setShowNotifications(false); }}
+                onClick={() => { setShowProfile(!showProfile); }}
                 className="h-9 w-9 rounded-full bg-gradient-to-tr from-emerald-400 to-green-500 flex items-center justify-center text-black font-bold text-sm shadow-md hover:scale-105 transition-transform border-2 border-white dark:border-[#12121a] ring-2 ring-transparent hover:ring-emerald-100 dark:hover:ring-emerald-500/20 outline-none"
               >
-                A
+                {user?.company_name?.charAt(0)?.toUpperCase() || 'U'}
               </button>
               
               {showProfile && (
                 <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-[#1a1a2e] rounded-xl shadow-xl border border-gray-100 dark:border-white/10 z-50 animate-fade-in py-2">
                   <div className="px-4 py-3 border-b border-gray-50 dark:border-white/5 mb-1">
-                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Admin User</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">admin@skillsync.ai</p>
+                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{user?.company_name || 'Admin User'}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{user?.email || 'admin@skillsync.ai'}</p>
                   </div>
                   
                   <button 
@@ -210,7 +178,7 @@ export default function Dashboard() {
                   
                   <div className="border-t border-gray-50 dark:border-white/5 mt-1 pt-1">
                     <button 
-                      onClick={() => navigate('/login')}
+                      onClick={() => { logoutAuth(); navigate('/login'); }}
                       className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 flex items-center gap-2 transition-colors font-medium"
                     >
                       <LogOut className="w-4 h-4" /> Sign Out

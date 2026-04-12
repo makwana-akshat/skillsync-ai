@@ -5,6 +5,33 @@ const api = axios.create({
   timeout: 120000, // 120s timeout — LLM + embedding can take 15-30s
 });
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
+
+export const signup = async (companyName, email, password) => {
+  const response = await api.post('/signup', {
+    company_name: companyName,
+    email,
+    password
+  });
+  return response.data;
+};
+
+export const login = async (email, password) => {
+  const response = await api.post('/login', {
+    email,
+    password
+  });
+  return response.data;
+};
+
 export const analyzeResume = async (file, jobDescription, thresholds = null, jdFile = null) => {
   const formData = new FormData();
   formData.append('file', file);

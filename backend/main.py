@@ -16,7 +16,11 @@ from table_extractor import extract_tables_from_bytes
 import asyncio
 import json
 import hashlib
-from database import init_db, add_analysis_record, get_overview_stats, get_all_records
+from pydantic import BaseModel, EmailStr
+from database import init_db, add_analysis_record, get_overview_stats, get_all_records, create_user, get_user_by_email
+from auth import get_password_hash, verify_password, create_access_token, get_current_user
+from fastapi import HTTPException, status, Depends
+from fastapi.security import OAuth2PasswordRequestForm
 
 init_db()
 
@@ -113,13 +117,44 @@ def deduplicate_files(file_contents: list) -> list:
     return unique
 
 
+# ── Auth models ─────────────────────────────────────────────────────
+class UserSignup(BaseModel):
+    company_name: str
+    email: EmailStr
+    password: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+@app.post("/signup", status_code=status.HTTP_201_CREATED)
+def signup(user: UserSignup):
+    hashed_password = get_password_hash(user.password)
+    success = create_user(user.company_name, user.email, hashed_password)
+    if not success:
+        raise HTTPException(status_code=400, detail="Email already exists")
+    return {"message": "User created successfully"}
+
+@app.post("/login")
+def login(user: UserLogin):
+    db_user = get_user_by_email(user.email)
+    if not db_user or not verify_password(user.password, db_user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = create_access_token(data={"sub": user.email, "user_id": db_user["id"]})
+    return {"access_token": access_token, "token_type": "bearer", "user": {"email": db_user["email"], "company_name": db_user["company_name"]}}
+
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to SkillSync AI"}
 
 @app.get("/stats")
-def stats_endpoint():
-    return get_overview_stats()
+def stats_endpoint(current_user: dict = Depends(get_current_user)):
+    return get_overview_stats(current_user["id"])
 
 @app.get("/history")
 def history_endpoint(
@@ -128,9 +163,10 @@ def history_endpoint(
     order: str = Query("desc"),
     tier: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
 ):
     """Return analysis history records with sorting & filtering."""
-    return {"records": get_all_records(limit, sort, order, tier, status)}
+    return {"records": get_all_records(current_user["id"], limit, sort, order, tier, status)}
 
 @app.post("/test")
 async def test_endpoint(
@@ -173,6 +209,7 @@ async def analyze_endpoint(
     job_description: str = Form(""),
     thresholds: Optional[str] = Form(None),
     jd_file: Optional[UploadFile] = File(None),
+    current_user: dict = Depends(get_current_user)
 ):
     # 1. Read file bytes
     file_bytes = await file.read()
@@ -217,7 +254,7 @@ async def analyze_endpoint(
     tier = classify_tier(score, t)
     
     # 5. Save to Database
-    add_analysis_record(file.filename, score, decision, tier)
+    add_analysis_record(current_user["id"], file.filename, score, decision, tier)
     
     # 6. Output — include categorized skills for frontend
     return {
@@ -244,6 +281,7 @@ async def rank_endpoint(
     job_description: str = Form(""),
     thresholds: Optional[str] = Form(None),
     jd_file: Optional[UploadFile] = File(None),
+    current_user: dict = Depends(get_current_user)
 ):
     # Parse thresholds
     t = DEFAULT_THRESHOLDS.copy()
@@ -310,7 +348,7 @@ async def rank_endpoint(
         score = match_result["score"]
         decision = classify_decision(score, t)
         tier = classify_tier(score, t)
-        add_analysis_record(f_name, score, decision, tier)
+        add_analysis_record(current_user["id"], f_name, score, decision, tier)
         
         ranked_candidates.append({
             "name": f_name,
