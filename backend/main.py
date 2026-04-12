@@ -17,7 +17,7 @@ import asyncio
 import json
 import hashlib
 from pydantic import BaseModel, EmailStr
-from database import init_db, add_analysis_record, get_overview_stats, get_all_records, create_user, get_user_by_email
+from database import init_db, add_analysis_record, get_overview_stats, get_all_records, create_user, get_user_by_email, update_open_positions
 from auth import get_password_hash, verify_password, create_access_token, get_current_user
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordRequestForm
@@ -155,6 +155,22 @@ def read_root():
 @app.get("/stats")
 def stats_endpoint(current_user: dict = Depends(get_current_user)):
     return get_overview_stats(current_user["id"])
+
+class OpenPositionsUpdate(BaseModel):
+    count: int
+
+@app.patch("/stats/open-positions")
+def update_open_positions_endpoint(
+    data: OpenPositionsUpdate, 
+    current_user: dict = Depends(get_current_user)
+):
+    if data.count < 0:
+        raise HTTPException(status_code=400, detail="Count cannot be negative")
+    if data.count > 10000:
+        raise HTTPException(status_code=400, detail="Count exceeds maximum allowed")
+        
+    update_open_positions(current_user["id"], data.count)
+    return {"message": "Success", "open_positions": data.count}
 
 @app.get("/history")
 def history_endpoint(

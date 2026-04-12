@@ -24,6 +24,7 @@ def init_db():
             company_name TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
             hashed_password TEXT NOT NULL,
+            open_positions INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -115,15 +116,28 @@ def get_overview_stats(user_id: int):
             {"name": "No data yet", "score": 0, "status": "Waiting", "tier": "-"}
         ]
         
+    # Open Positions
+    cursor.execute('SELECT open_positions FROM users WHERE id = ?', (user_id,))
+    user_row = cursor.fetchone()
+    open_positions = user_row['open_positions'] if user_row else 0
+    
     conn.close()
     
     return {
         "total_analyzed": total_analyzed,
         "avg_match_rate": avg_score,
-        "open_positions": 14,
+        "open_positions": open_positions,
         "processed_today": processed_today,
         "recent_activity": recent_activity
     }
+
+def update_open_positions(user_id: int, count: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET open_positions = ? WHERE id = ?', (count, user_id))
+    conn.commit()
+    conn.close()
+    return True
 
 def create_user(company_name: str, email: str, hashed_password: str):
     conn = sqlite3.connect(DB_PATH)

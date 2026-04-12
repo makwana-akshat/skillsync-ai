@@ -126,3 +126,8 @@ export const getHistory = async ({ limit = 200, sort = 'date', order = 'desc', t
   const response = await api.get('/history', { params });
   return response.data;
 };
+
+export const updateOpenPositions = async (count) => {
+  const response = await api.patch('/stats/open-positions', { count });
+  return response.data;
+};
