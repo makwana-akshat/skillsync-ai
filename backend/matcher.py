@@ -90,11 +90,32 @@ def match_skills(resume_skills: list, job_skills: dict, job_description: str = "
     semantic_score = semantic_result.get("semantic_score", 0.0)
     top_semantic_matches = semantic_result.get("top_matches", [])
     
-    final_score = (keyword_score * 0.70) + (semantic_score * 0.30)
+    final_score = (keyword_score * 0.80) + (semantic_score * 0.20)
     
-    explanation_text = f"The candidate matches {round(final_score, 2)}% overall. "
-    explanation_text += f"(Keyword Score: {round(keyword_score, 2)}%, Semantic Score: {round(semantic_score, 2)}%) "
-    explanation_text += f"Matched {len(matched_required)}/{len(valid_req)} known required skills, and {len(matched_optional)}/{len(valid_opt)} known optional skills."
+    explanation_lines = []
+    explanation_lines.append(f"📊 The candidate achieves a {round(final_score, 2)}% overall match for this role.")
+    explanation_lines.append("")
+    explanation_lines.append(f"🎯 Keyword Match: {round(keyword_score, 2)}%")
+    explanation_lines.append(f"🧠 Semantic Context Match: {round(semantic_score, 2)}%")
+    explanation_lines.append("")
+    explanation_lines.append(f"✅ Matched {len(matched_required)} out of {len(valid_req)} core required skills.")
+    
+    if len(missing_required) > 0:
+        missing_count = len(missing_required)
+        missing_list = ", ".join(missing_required[:3]) + ("..." if missing_count > 3 else "")
+        explanation_lines.append(f"⚠️ Missing {missing_count} critical requirements (e.g., {missing_list}), which may impact their immediate readiness.")
+    else:
+        explanation_lines.append(f"🌟 Excellent! The candidate meets all {len(valid_req)} core requirements.")
+
+    if len(matched_optional) > 0:
+        explanation_lines.append(f"🚀 Bonus: They bring {len(matched_optional)} nice-to-have skills, giving them a competitive edge.")
+        
+    if semantic_score > keyword_score + 10:
+        explanation_lines.append("💡 Note: While exact keyword matches were lower, their overall experience strongly aligns contextually with the job.")
+    elif keyword_score > 60 and semantic_score < 40:
+        explanation_lines.append("🔍 Note: The candidate has the keywords, but their broader contextual experience might not perfectly align with the specific job description.")
+
+    explanation_text = "\n".join(explanation_lines)
     
     # Safely extract skill names
     matched_skills = []

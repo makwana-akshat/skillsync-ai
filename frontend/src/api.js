@@ -5,10 +5,16 @@ const api = axios.create({
   timeout: 120000, // 120s timeout — LLM + embedding can take 15-30s
 });
 
-export const analyzeResume = async (file, jobDescription) => {
+export const analyzeResume = async (file, jobDescription, thresholds = null, jdFile = null) => {
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('job_description', jobDescription);
+  formData.append('job_description', jobDescription || '');
+  if (thresholds) {
+    formData.append('thresholds', JSON.stringify(thresholds));
+  }
+  if (jdFile) {
+    formData.append('jd_file', jdFile);
+  }
 
   const response = await api.post('/analyze', formData, {
     headers: {
@@ -18,12 +24,18 @@ export const analyzeResume = async (file, jobDescription) => {
   return response.data;
 };
 
-export const rankResumes = async (files, jobDescription) => {
+export const rankResumes = async (files, jobDescription, thresholds = null, jdFile = null) => {
   const formData = new FormData();
   files.forEach(file => {
     formData.append('files', file);
   });
-  formData.append('job_description', jobDescription);
+  formData.append('job_description', jobDescription || '');
+  if (thresholds) {
+    formData.append('thresholds', JSON.stringify(thresholds));
+  }
+  if (jdFile) {
+    formData.append('jd_file', jdFile);
+  }
 
   const response = await api.post('/rank', formData, {
     headers: {
@@ -32,6 +44,27 @@ export const rankResumes = async (files, jobDescription) => {
   });
   return response.data;
 };
+
+export const advancedBatchMatch = async (resumes, jdFiles, thresholds = null) => {
+  const formData = new FormData();
+  resumes.forEach(file => {
+    formData.append('resumes', file);
+  });
+  jdFiles.forEach(file => {
+    formData.append('job_description_files', file);
+  });
+  if (thresholds) {
+    formData.append('thresholds', JSON.stringify(thresholds));
+  }
+
+  const response = await api.post('/batch-match', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
 export const downloadReport = async (file, jobDescription) => {
   const formData = new FormData();
   formData.append('file', file);
@@ -52,4 +85,17 @@ export const downloadReport = async (file, jobDescription) => {
   document.body.appendChild(link);
   link.click();
   link.remove();
+};
+
+export const getOverviewStats = async () => {
+  const response = await api.get('/stats');
+  return response.data;
+};
+
+export const getHistory = async ({ limit = 200, sort = 'date', order = 'desc', tier = null, status = null } = {}) => {
+  const params = { limit, sort, order };
+  if (tier && tier !== 'all') params.tier = tier;
+  if (status && status !== 'all') params.status = status;
+  const response = await api.get('/history', { params });
+  return response.data;
 };
